@@ -1,1 +1,887 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>台股 AI 分析儀表板</title>
+<style>
+:root{
+--bg:#06101d;--card:#101d2d;--card2:#15263a;--text:#eef5ff;
+--muted:#91a4b9;--line:#263b52;--blue:#42a5ff;
+--green:#35d07f;--yellow:#ffd166;--red:#ff6678
+}
+*{box-sizing:border-box}
+body{
+margin:0;background:linear-gradient(180deg,#06101d,#0b1625);
+color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif
+}
+.wrap{max-width:1100px;margin:auto;padding:20px 14px 50px}
+.brand{font-size:25px;font-weight:900;margin-bottom:14px}
+.search{display:flex;gap:8px}
+input{
+flex:1;background:#0d1a2a;border:1px solid var(--line);
+border-radius:12px;color:#fff;padding:14px;font-size:17px;min-width:0
+}
+button{
+border:0;border-radius:12px;background:var(--blue);color:#fff;
+font-weight:800;padding:0 20px;font-size:16px
+}
+.chips{display:flex;gap:8px;overflow:auto;padding:12px 0}
+.chip{
+background:#12243a;border:1px solid var(--line);color:#cfe1f5;
+border-radius:999px;padding:7px 12px;white-space:nowrap
+}
+h1{font-size:30px;margin:20px 0 4px}
+.sub{color:var(--muted);margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{
+background:rgba(16,29,45,.96);border:1px solid var(--line);
+border-radius:17px;padding:17px
+}
+.wide{grid-column:1/-1}
+.title{font-size:17px;font-weight:900;margin-bottom:13px}
+.big{font-size:34px;font-weight:900}
+.up{color:var(--green)}.down{color:var(--red)}
+.muted{color:var(--muted)}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.kv div{background:#0c1928;border-radius:10px;padding:11px}
+.kv b{display:block;font-size:18px;margin-top:4px}
+.rows{display:grid;gap:5px}
+.row{
+display:flex;justify-content:space-between;gap:15px;
+border-bottom:1px solid #203246;padding:10px 0
+}
+.tag{
+display:inline-block;border-radius:8px;padding:4px 8px;
+font-size:12px;font-weight:900;background:#18304a
+}
+.good{color:var(--green)}.warn{color:var(--yellow)}.bad{color:var(--red)}
+.risk{
+border:1px solid var(--yellow);
+background:linear-gradient(180deg,#1c2a35,#13202c)
+}
+.risk.low{border-color:var(--green)}
+.risk.high{border-color:var(--red)}
+.risknum{font-size:42px;font-weight:900}
+.notice{color:var(--muted);line-height:1.7}
+.loading{text-align:center;padding:25px;color:var(--muted)}
+.bar{height:10px;background:#091523;border-radius:20px;overflow:hidden}
+.fill{height:100%;background:var(--blue)}
+.small{font-size:13px;color:var(--muted)}
+footer{margin-top:20px;color:#71859a;font-size:12px;line-height:1.6}
+@media(max-width:700px){
+.grid{grid-template-columns:1fr}.wide{grid-column:auto}
+.search button{padding:0 15px}
+}
+</style>
+</head>
 
+<body>
+<div class="wrap">
+
+<div class="brand">📊 台股 AI 分析儀表板</div>
+
+<div class="search">
+<input id="q" placeholder="輸入股票代號，例如 2330、2317、2327">
+<button onclick="analyze()">🔎 分析</button>
+</div>
+
+<div class="chips">
+<button class="chip" onclick="pick('2330')">2330 台積電</button>
+<button class="chip" onclick="pick('2317')">2317 鴻海</button>
+<button class="chip" onclick="pick('2327')">2327 國巨</button>
+<button class="chip" onclick="pick('5351')">5351 鈺創</button>
+</div>
+
+<h1 id="name">台股分析</h1>
+<div class="sub" id="status">輸入股票代號後開始分析</div>
+<div id="app"></div>
+
+<footer>
+資料為公開市場資料，可能有延遲或缺漏。
+本頁為研究工具，不構成投資建議。
+</footer>
+
+</div>
+
+<script>
+
+const $=id=>document.getElementById(id);
+
+const names={
+"2330":"台積電",
+"2317":"鴻海",
+"2327":"國巨",
+"5351":"鈺創",
+"2454":"聯發科",
+"2303":"聯電",
+"2382":"廣達",
+"3231":"緯創",
+"6669":"緯穎",
+"2344":"華邦電",
+"2408":"南亞科",
+"3711":"日月光投控"
+};
+
+function pick(x){
+$("q").value=x;
+analyze();
+}
+
+function esc(x){
+return String(x??"").replace(/[&<>"']/g,m=>({
+"&":"&amp;","<":"&lt;",">":"&gt;",
+'"':"&quot;","'":"&#39;"
+}[m]));
+}
+
+function avg(a){
+return a.reduce((x,y)=>x+y,0)/a.length;
+}
+
+function ma(arr,n){
+if(arr.length<n)return null;
+return avg(arr.slice(-n));
+}
+
+function ema(arr,n){
+if(arr.length<n)return null;
+let k=2/(n+1);
+let e=avg(arr.slice(0,n));
+for(let i=n;i<arr.length;i++)e=arr[i]*k+e*(1-k);
+return e;
+}
+
+function rsi(arr,n=14){
+if(arr.length<=n)return null;
+let gain=0,loss=0;
+for(let i=arr.length-n;i<arr.length;i++){
+let d=arr[i]-arr[i-1];
+if(d>0)gain+=d;
+else loss-=d;
+}
+if(loss===0)return 100;
+let rs=(gain/n)/(loss/n);
+return 100-(100/(1+rs));
+}
+
+function macd(arr){
+let e12=ema(arr,12);
+let e26=ema(arr,26);
+if(e12==null||e26==null)return null;
+return e12-e26;
+}
+
+function kd(arr){
+if(arr.length<14)return null;
+let h=Math.max(...arr.slice(-14));
+let l=Math.min(...arr.slice(-14));
+return h===l?50:(arr[arr.length-1]-l)/(h-l)*100;
+}
+
+function fmt(x,d=2){
+return x==null?"—":Number(x).toFixed(d);
+}
+
+function pct(x){
+return x==null?"—":(x>=0?"+":"")+Number(x).toFixed(2)+"%";
+}
+
+async function getChart(symbol,range="6mo"){
+let url=
+"https://query1.finance.yahoo.com/v8/finance/chart/"
++symbol+"?range="+range+"&interval=1d&events=history";
+
+let r=await fetch(url);
+if(!r.ok)throw Error("行情資料暫時無法取得");
+return await r.json();
+}
+
+async function getFundamentals(code){
+const u="https://taiwan-stock-api.p337531.workers.dev/fundamentals?symbol="+encodeURIComponent(code);
+const r=await fetch(u);
+if(!r.ok)return null;
+return r.json();
+}
+
+async function analyze(){
+
+let code=$("q").value.trim().toUpperCase();
+
+if(!code){
+$("status").textContent="請輸入股票代號";
+return;
+}
+
+$("status").textContent="正在分析 "+code+"…";
+
+$("app").innerHTML=
+'<div class="card loading">⏳ 正在取得行情、基本面、籌碼與技術資料…</div>';
+
+try{
+
+let symbol=code.endsWith(".TW")?code:code+".TW";
+
+let [stock,market,fundamentals]=await Promise.all([
+getChart(symbol),
+fetch("https://taiwan-stock-api.p337531.workers.dev/market")
+.then(r=>{
+if(!r.ok)throw Error("大盤資料暫時無法取得");
+return r.json();
+}),
+getFundamentals(code)
+]);
+
+let sr=stock.chart.result[0];
+let mr=market.chart.result[0];
+
+let quote=sr.indicators.quote[0];
+
+let close=(quote.close||[]).filter(x=>x!=null);
+let high=(quote.high||[]).filter(x=>x!=null);
+let low=(quote.low||[]).filter(x=>x!=null);
+let volume=(quote.volume||[]).filter(x=>x!=null);
+
+let mclose=(mr.indicators.quote[0].close||[])
+.filter(x=>x!=null);
+
+if(close.length<30)
+throw Error("這檔股票目前取得的歷史資料不足");
+
+let price=close.at(-1);
+let prev=close.at(-2);
+let change=(price/prev-1)*100;
+
+let ma5=ma(close,5);
+let ma10=ma(close,10);
+let ma20=ma(close,20);
+let ma60=ma(close,60);
+
+let r=rsi(close);
+let m=macd(close);
+let k=kd(close);
+
+let v=volume.at(-1);
+let avgv=avg(volume.slice(-20));
+
+let marketNow=mclose.at(-1);
+let marketPrev=mclose.at(-2);
+let marketChange=(marketNow/marketPrev-1)*100;
+
+let stock20=close.at(-20);
+let market20=mclose.at(-20);
+
+let stock20p=(price/stock20-1)*100;
+let market20p=(marketNow/market20-1)*100;
+let relative=stock20p-market20p;
+
+let revData=fundamentals?.revenue||null;
+let valData=fundamentals?.valuation||null;
+let instData=fundamentals?.institutions||null;
+
+let revenueYoy=revData?.yoy;
+let revenueMom=revData?.mom;
+let instTotal=instData?.total;
+
+let revenueState=
+revenueYoy==null?"待資料":
+revenueYoy>=15?"🟢 明顯成長":
+revenueYoy>0?"🟢 成長":
+revenueYoy>-10?"🟡 小幅衰退":"🔴 明顯衰退";
+
+let chipState=
+instTotal==null?"待資料":
+instTotal>0?"🟢 法人合計買超":
+instTotal<0?"🔴 法人合計賣超":"🟡 法人持平";
+
+function findSupportResistance(highs,lows,price){
+
+let supports=[];
+let resistances=[];
+let start=Math.max(2,highs.length-60);
+
+for(let i=start;i<highs.length-1;i++){
+
+let h=highs[i],l=lows[i];
+
+if(l<price&&l<=lows[i-1]&&l<=lows[i+1])
+supports.push(l);
+
+if(h>price&&h>=highs[i-1]&&h>=highs[i+1])
+resistances.push(h);
+
+}
+
+function uniqueLevels(arr,nearestFirst){
+
+arr.sort(
+nearestFirst
+?(a,b)=>Math.abs(a-price)-Math.abs(b-price)
+:(a,b)=>b-a
+);
+
+let out=[];
+
+for(let x of arr){
+
+if(!out.some(y=>Math.abs(x-y)/y<0.008))
+out.push(x);
+
+if(out.length>=4)break;
+
+}
+
+return out;
+}
+
+let s=uniqueLevels(supports,true);
+let rr=uniqueLevels(resistances,true);
+
+let s1=s.find(x=>x<price)??Math.min(...lows.slice(-20));
+let s2=s.find(x=>x<s1*0.992)??Math.min(...lows.slice(-40));
+
+let r1=rr.find(x=>x>price)??Math.max(...highs.slice(-20));
+let r2=rr.find(x=>x>r1*1.008)??Math.max(...highs.slice(-40));
+
+return{s1,s2,r1,r2};
+}
+
+let levels=findSupportResistance(high,low,price);
+
+let s1=levels.s1;
+let s2=levels.s2;
+let r1=levels.r1;
+let r2=levels.r2;
+
+let risk=50;
+let reasons=[];
+
+if(price>ma5&&price>ma10&&price>ma20){
+risk-=12;
+reasons.push("股價站在短中期均線之上");
+}else if(price<ma5&&price<ma20){
+risk+=12;
+reasons.push("股價位於短中期均線下方");
+}
+
+if(r>75){
+risk+=12;
+reasons.push("RSI偏熱，短線追價風險增加");
+}else if(r>=50){
+risk-=5;
+reasons.push("RSI維持多方區");
+}else if(r<35){
+risk+=5;
+reasons.push("RSI偏弱");
+}
+
+if(m>0){
+risk-=6;
+reasons.push("MACD位於正值區");
+}else{
+risk+=6;
+reasons.push("MACD位於負值區");
+}
+
+let vr=v/avgv;
+
+if(vr>1.5&&change>0){
+risk-=8;
+reasons.push("上漲伴隨放量");
+}else if(vr>1.5&&change<0){
+risk+=10;
+reasons.push("下跌伴隨放量");
+}
+
+if(relative>5){
+risk-=8;
+reasons.push("近20日明顯強於大盤");
+}else if(relative<-5){
+risk+=8;
+reasons.push("近20日弱於大盤");
+}
+
+if(revenueYoy!=null){
+
+if(revenueYoy>=10){
+risk-=5;
+reasons.push("最新月營收年增");
+}
+
+else if(revenueYoy<=-10){
+risk+=5;
+reasons.push("最新月營收年減");
+}
+
+}
+
+if(instTotal!=null){
+
+if(instTotal>0){
+risk-=3;
+reasons.push("最新交易日三大法人合計買超");
+}
+
+else if(instTotal<0){
+risk+=3;
+reasons.push("最新交易日三大法人合計賣超");
+}
+
+}
+
+let dist=(r1-price)/price*100;
+let supportDist=(price-s1)/price*100;
+
+if(dist<2){
+risk+=8;
+reasons.push("目前接近第一壓力區");
+}
+
+if(supportDist<2){
+risk+=5;
+reasons.push("目前接近第一支撐，波動風險增加");
+}
+
+risk=Math.max(10,Math.min(90,Math.round(risk)));
+
+let level=
+risk<35?"🟢 較低":
+risk<60?"🟡 中等":
+"🔴 較高";
+
+let cls=
+risk<35?"low":
+risk>=60?"high":"";
+
+let trend=
+price>ma5&&ma5>ma10&&ma10>ma20
+?"主升／加速觀察":
+price>ma20
+?"偏多／等待確認":
+price<ma20
+?"偏弱／等待轉強":
+"整理";
+
+let volumeState=
+vr>1.5&&change>0
+?"價漲量增":
+vr>1.5&&change<0
+?"價跌量增":
+vr<0.7
+?"量縮":
+"正常";
+
+let relativeState=
+relative>5
+?"明顯強於大盤":
+relative>0
+?"略強於大盤":
+relative<-5
+?"明顯弱於大盤":
+"接近大盤";
+
+$("name").textContent=
+code+" "+(names[code]||sr.meta.shortName||"");
+
+$("status").textContent=
+"分析完成｜資料更新："+new Date().toLocaleString("zh-TW");
+
+$("app").innerHTML=`
+
+<div class="grid">
+
+<div class="card">
+<div class="title">📌 個股行情</div>
+
+<div class="big ${change>=0?"up":"down"}">
+${fmt(price)}
+</div>
+
+<div class="${change>=0?"up":"down"}">
+${change>=0?"▲":"▼"} ${pct(change)}
+</div>
+
+<div class="muted" style="margin-top:8px">
+成交量：${Number(v).toLocaleString()} 股
+</div>
+
+</div>
+
+<div class="card">
+
+<div class="title">📊 基本面／籌碼</div>
+
+<div class="rows">
+
+<div class="row">
+<span>最新月營收</span>
+<b>
+${revData?.current==null
+?"—"
+:Number(revData.current/1000000).toFixed(2)+" 億"}
+</b>
+</div>
+
+<div class="row">
+<span>營收 YoY</span>
+<b class="${revenueYoy==null?"":revenueYoy>=0?"good":"bad"}">
+${pct(revenueYoy)}
+</b>
+</div>
+
+<div class="row">
+<span>營收 MoM</span>
+<b>${pct(revenueMom)}</b>
+</div>
+
+<div class="row">
+<span>本益比</span>
+<b>${valData?.pe==null?"—":fmt(valData.pe)}</b>
+</div>
+
+<div class="row">
+<span>股價淨值比</span>
+<b>${valData?.pbr==null?"—":fmt(valData.pbr)}</b>
+</div>
+
+<div class="row">
+<span>殖利率</span>
+<b>${valData?.yield==null?"—":fmt(valData.yield)+"%"}</b>
+</div>
+
+<div class="row">
+<span>三大法人</span>
+<b class="${instTotal==null?"":instTotal>=0?"good":"bad"}">
+${instTotal==null
+?"待資料"
+:(instTotal>=0?"買超 ":"賣超 ")+
+Number(Math.abs(instTotal)/1000).toLocaleString()+" 張"}
+</b>
+</div>
+
+</div>
+</div>
+
+<div class="card">
+
+<div class="title">🧭 市場相對強弱</div>
+
+<div class="kv">
+
+<div>
+大盤今日
+<b>${pct(marketChange)}</b>
+</div>
+
+<div>
+個股今日
+<b>${pct(change)}</b>
+</div>
+
+<div>
+大盤20日
+<b>${pct(market20p)}</b>
+</div>
+
+<div>
+個股20日
+<b>${pct(stock20p)}</b>
+</div>
+
+<div>
+相對大盤
+<b class="${relative>=0?"good":"bad"}">
+${pct(relative)}
+</b>
+</div>
+
+</div>
+</div>
+
+<div class="card wide">
+
+<div class="title">📈 技術面</div>
+
+<div class="kv">
+
+<div>MA5<b>${fmt(ma5)}</b></div>
+<div>MA10<b>${fmt(ma10)}</b></div>
+<div>MA20<b>${fmt(ma20)}</b></div>
+<div>MA60<b>${fmt(ma60)}</b></div>
+<div>RSI14<b>${fmt(r)}</b></div>
+<div>MACD<b>${fmt(m)}</b></div>
+<div>K值<b>${fmt(k)}</b></div>
+<div>趨勢<b>${trend}</b></div>
+
+</div>
+</div>
+
+<div class="card">
+
+<div class="title">💥 量價結構</div>
+
+<div class="rows">
+
+<div class="row">
+<span>今日量 / 20日均量</span>
+<b>${fmt(vr,2)} 倍</b>
+</div>
+
+<div class="row">
+<span>量價狀態</span>
+<b>${volumeState}</b>
+</div>
+
+<div class="row">
+<span>市場相對強弱</span>
+<b>${relativeState}</b>
+</div>
+
+</div>
+</div>
+
+<div class="card">
+
+<div class="title">🎯 關鍵位置</div>
+
+<div class="rows">
+
+<div class="row">
+<span>第一支撐 S1</span>
+<b class="good">${fmt(s1)}</b>
+</div>
+
+<div class="row">
+<span>第二支撐 S2</span>
+<b class="good">${fmt(s2)}</b>
+</div>
+
+<div class="row">
+<span>目前價格</span>
+<b>${fmt(price)}</b>
+</div>
+
+<div class="row">
+<span>第一壓力 R1</span>
+<b class="bad">${fmt(r1)}</b>
+</div>
+
+<div class="row">
+<span>第二壓力 R2</span>
+<b class="bad">${fmt(r2)}</b>
+</div>
+
+</div>
+</div>
+
+<div class="card wide">
+
+<div class="title">🔍 7 層產業研究漏斗</div>
+
+<div class="rows">
+
+<div class="row">
+<span>1️⃣ 市場</span>
+<b>${marketChange>=0?"🟢 偏多":"🔴 偏弱"}</b>
+</div>
+
+<div class="row">
+<span>2️⃣ 產業</span>
+<b>
+${fundamentals?.industry
+?"產業代碼 "+esc(fundamentals.industry)
+:"產業資料待確認"}
+</b>
+</div>
+
+<div class="row">
+<span>3️⃣ 需求</span>
+<b>
+${revenueYoy==null
+?"營收資料待確認"
+:("營收 YoY "+pct(revenueYoy)+"｜"+revenueState)}
+</b>
+</div>
+
+<div class="row">
+<span>4️⃣ 訂單／價格</span>
+<b>
+${pct(stock20p)}（20日價格趨勢代理）｜${volumeState}
+</b>
+</div>
+
+<div class="row">
+<span>5️⃣ 營收</span>
+<b>
+${revenueYoy==null
+?"待最新月營收"
+:("YoY "+pct(revenueYoy)+"｜MoM "+pct(revenueMom))}
+</b>
+</div>
+
+<div class="row">
+<span>6️⃣ 籌碼</span>
+<b>
+${instTotal==null
+?"待三大法人資料"
+:(chipState+"｜"+
+(instData.foreign==null
+?""
+:"外資 "+
+(instData.foreign>=0?"+":"")+
+Number(instData.foreign/1000).toFixed(0)+"張"))}
+</b>
+</div>
+
+<div class="row">
+<span>7️⃣ 技術／位階</span>
+<b>
+${trend}｜S1 ${fmt(s1)}／R1 ${fmt(r1)}
+</b>
+</div>
+
+</div>
+</div>
+
+<div class="card">
+
+<div class="title">🚦 市場階段</div>
+
+<div class="big">${trend}</div>
+
+<div class="notice" style="margin-top:8px">
+不是單看一天漲跌，而是看價格、均線、成交量與相對大盤強弱是否同步。
+</div>
+
+</div>
+
+<div class="card">
+
+<div class="title">⚠️ 主要風險</div>
+
+<div class="rows">
+
+<div class="row">
+<span>追高</span>
+<b>
+${dist<2
+?"🔴 接近第一壓力"
+:supportDist<2
+?"🟡 接近第一支撐"
+:"🟢 位於支撐與壓力之間"}
+</b>
+</div>
+
+<div class="row">
+<span>短線過熱</span>
+<b>${r>75?"🔴":"🟢"}</b>
+</div>
+
+<div class="row">
+<span>量價</span>
+<b>${volumeState}</b>
+</div>
+
+<div class="row">
+<span>相對大盤</span>
+<b>${relativeState}</b>
+</div>
+
+</div>
+</div>
+
+<div class="card wide risk ${cls}">
+
+<div class="title">
+🤖 AI 建議｜當下買入風險
+</div>
+
+<div class="risknum">
+${level}　${risk}/100
+</div>
+
+<div class="bar" style="margin:12px 0">
+<div class="fill" style="width:${risk}%"></div>
+</div>
+
+<div class="notice">
+
+<b>為什麼：</b>
+${esc(reasons.join("、"))}。
+
+<br><br>
+
+<b>現在追價風險：</b>
+
+${dist<2
+?"目前接近第一壓力，直接追價的風險較高。"
+:supportDist<2
+?"目前接近第一支撐，應觀察是否守住。"
+:"目前位於第一支撐與第一壓力之間，仍要觀察量價與大盤。"}
+
+<br><br>
+
+<b>如果現在不買：</b>
+
+可以等待回測支撐不破、量能重新放大，
+或突破壓力後站穩再重新確認。
+
+<br><br>
+
+<b>下一個確認訊號：</b>
+
+價格＋成交量＋相對大盤強弱，
+至少兩項同步改善。
+
+<br><br>
+
+<span class="small">
+※ 此風險分數是根據目前取得的技術與量價資料計算，
+不是保證漲跌的投資訊號。
+</span>
+
+</div>
+</div>
+
+</div>
+`;
+
+}catch(e){
+
+$("status").textContent="分析失敗";
+
+$("app").innerHTML=
+`<div class="card">
+<b>⚠️ ${esc(e.message)}</b>
+
+<div class="notice" style="margin-top:10px">
+可能是公開行情服務暫時限制瀏覽器存取。
+請稍後再試。
+</div>
+
+</div>`;
+
+}
+
+}
+
+async function getChart(symbol,range="6mo"){
+const u=
+"https://taiwan-stock-api.p337531.workers.dev/chart?symbol="
++encodeURIComponent(symbol);
+
+const r=await fetch(u);
+
+if(!r.ok)
+throw Error("後端行情資料暫時無法取得");
+
+return r.json();
+}
+
+$("q").addEventListener("keydown",e=>{
+if(e.key==="Enter")analyze();
+});
+
+</script>
+</body>
+</html>
