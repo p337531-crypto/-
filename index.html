@@ -582,7 +582,12 @@ $("app").innerHTML=
 
 }
 
-$("q").addEventListener("keydown",e=>{
+async function getChart(symbol,range="6mo"){
+  const u="https://taiwan-stock-api.p337531.workers.dev/chart?symbol="+encodeURIComponent(symbol);
+  const r=await fetch(u);
+  if(!r.ok) throw Error("後端行情資料暫時無法取得");
+  return r.json();
+}$("q").addEventListener("keydown",e=>{
 if(e.key==="Enter")analyze();
 });
 
