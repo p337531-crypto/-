@@ -136,7 +136,9 @@ return String(x??"").replace(/[&<>"']/g,m=>({
 }
 
 function avg(a){
-return a.reduce((x,y)=>x+y,0)/a.length;
+const nums=a.map(Number).filter(Number.isFinite);
+if(!nums.length)return null;
+return nums.reduce((x,y)=>x+y,0)/nums.length;
 }
 
 function ma(arr,n){
