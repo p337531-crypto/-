@@ -279,7 +279,11 @@ function indicatorText(r,m,k,change,vr){
     kdText
   };
 }
-
+function drawKLine(open,high,low,close,volume){
+const canvas=$("kline");
+if(!canvas)return;
+const rect=canvas.getBoundingClientRect();
+const dpr=window.devicePixelRatio||1;
 const w=Math.max(320,Math.floor(rect.width));
 const h=Math.max(360,Math.floor(rect.height));
 
