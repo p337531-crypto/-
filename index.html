@@ -187,21 +187,250 @@ function pct(x){
 return x==null?"—":(x>=0?"+":"")+Number(x).toFixed(2)+"%";
 }
 
-async function getChart(symbol,range="6mo"){
-let url=
-"https://query1.finance.yahoo.com/v8/finance/chart/"
-+symbol+"?range="+range+"&interval=1d&events=history";
+function indicatorText(r,m,k,change,vr){
 
-let r=await fetch(url);
-if(!r.ok)throw Error("行情資料暫時無法取得");
-return await r.json();
+let volumeText=
+change>0&&vr>=1.2
+?"🟢 價漲量增｜攻擊":
+change>0&&vr<1
+?"🟢 價漲量縮｜偏多但力道普通":
+Math.abs(change)<0.5&&vr<0.8
+?"🟡 價平量縮｜整理":
+change<0&&vr>=1.2
+?"🔴 價跌量增｜賣壓":
+change<0&&vr<1
+?"🔴 價跌量縮｜弱勢但賣壓未爆發":
+"🟡 量價正常";
+
+let rsiText=
+r==null
+?"—":
+r>=70
+?"🔴 過熱":
+r>=50
+?"🟢 偏強":
+r>=30
+?"🟡 偏弱":
+"🔴 超弱／可能超賣";
+
+let macdText=
+m==null
+?"—":
+m>0
+?"🟢 多方":
+"🔴 空方";
+
+let kdText=
+k==null
+?"—":
+k>=80
+?"🔴 高檔":
+k<=20
+?"🟡 低檔":
+k>=50
+?"🟢 K>D 區間":
+"🔴 K<D 區間";
+
+return{
+volumeText,
+rsiText,
+macdText,
+kdText
+};
+}
+
+function drawKLine(open,high,low,close,volume){
+
+const canvas=document.getElementById("kline");
+
+if(!canvas)return;
+
+const dpr=window.devicePixelRatio||1;
+const rect=canvas.getBoundingClientRect();
+
+const w=Math.max(320,Math.floor(rect.width));
+const h=Math.max(360,Math.floor(rect.height));
+
+canvas.width=w*dpr;
+canvas.height=h*dpr;
+
+const ctx=canvas.getContext("2d");
+
+ctx.setTransform(dpr,0,0,dpr,0,0);
+ctx.clearRect(0,0,w,h);
+
+const n=Math.min(70,close.length);
+const start=close.length-n;
+
+const C=close.slice(start);
+const O=open.slice(start);
+const H=high.slice(start);
+const L=low.slice(start);
+const V=volume.slice(start);
+
+const top=18;
+const bottom=52;
+const volH=72;
+const chartH=h-top-bottom-volH;
+
+const maxP=Math.max(...H);
+const minP=Math.min(...L);
+const maxV=Math.max(...V,1);
+
+const px=i=>
+8+i*(w-16)/Math.max(n-1,1);
+
+const py=p=>
+top+(maxP-p)/(maxP-minP||1)*chartH;
+
+const vy=v=>
+top+chartH+(maxV-v)/maxV*volH;
+
+ctx.strokeStyle="#263b52";
+ctx.lineWidth=1;
+
+for(let j=0;j<4;j++){
+
+const y=top+j*chartH/3;
+
+ctx.beginPath();
+ctx.moveTo(0,y);
+ctx.lineTo(w,y);
+ctx.stroke();
+
+}
+
+function maline(period,label){
+
+ctx.beginPath();
+
+let started=false;
+
+for(let i=0;i<n;i++){
+
+const g=start+i;
+
+if(g<period-1)continue;
+
+const val=
+avg(close.slice(g-period+1,g+1));
+
+const x=px(i);
+const y=py(val);
+
+if(!started){
+ctx.moveTo(x,y);
+started=true;
+}else{
+ctx.lineTo(x,y);
+}
+
+}
+
+ctx.strokeStyle=
+label===5
+?"#42a5ff":
+label===10
+?"#ffd166":
+"#35d07f";
+
+ctx.lineWidth=1.6;
+ctx.stroke();
+
+}
+
+maline(5,5);
+maline(10,10);
+maline(20,20);
+
+for(let i=0;i<n;i++){
+
+const x=px(i);
+
+const o=
+O[i]??(i?C[i-1]:C[i]);
+
+const cc=C[i];
+
+const hi=H[i];
+const lo=L[i];
+
+const up=cc>=o;
+
+ctx.strokeStyle=
+up
+?"#35d07f"
+:"#ff6678";
+
+ctx.fillStyle=ctx.strokeStyle;
+
+ctx.beginPath();
+ctx.moveTo(x,py(hi));
+ctx.lineTo(x,py(lo));
+ctx.stroke();
+
+const bw=
+Math.max(2,(w-16)/n*.58);
+
+const bt=
+py(Math.max(o,cc));
+
+const bb=
+py(Math.min(o,cc));
+
+ctx.fillRect(
+x-bw/2,
+bt,
+bw,
+Math.max(1,bb-bt)
+);
+
+ctx.fillRect(
+x-1,
+vy(V[i]),
+2,
+h-bottom-vy(V[i])
+);
+
+}
+
+ctx.font="12px sans-serif";
+
+ctx.fillStyle="#91a4b9";
+ctx.fillText("MA5",8,h-28);
+
+ctx.fillStyle="#42a5ff";
+ctx.fillText("●",38,h-28);
+
+ctx.fillStyle="#91a4b9";
+ctx.fillText("MA10",62,h-28);
+
+ctx.fillStyle="#ffd166";
+ctx.fillText("●",101,h-28);
+
+ctx.fillStyle="#91a4b9";
+ctx.fillText("MA20",125,h-28);
+
+ctx.fillStyle="#35d07f";
+ctx.fillText("●",164,h-28);
+
+ctx.fillStyle="#91a4b9";
+ctx.fillText("成交量",190,h-28);
+
 }
 
 async function getFundamentals(code){
-const u="https://taiwan-stock-api.p337531.workers.dev/fundamentals?symbol="+encodeURIComponent(code);
+
+const u=
+"https://taiwan-stock-api.p337531.workers.dev/fundamentals?symbol="
++encodeURIComponent(code);
+
 const r=await fetch(u);
+
 if(!r.ok)return null;
+
 return r.json();
+
 }
 
 async function analyze(){
@@ -209,27 +438,45 @@ async function analyze(){
 let code=$("q").value.trim().toUpperCase();
 
 if(!code){
+
 $("status").textContent="請輸入股票代號";
+
 return;
+
 }
 
-$("status").textContent="正在分析 "+code+"…";
+$("status").textContent=
+"正在分析 "+code+"…";
 
 $("app").innerHTML=
 '<div class="card loading">⏳ 正在取得行情、基本面、籌碼與技術資料…</div>';
 
 try{
 
-let symbol=code.endsWith(".TW")?code:code+".TW";
+let symbol=
+code.endsWith(".TW")
+?code
+:code+".TW";
 
-let [stock,market,fundamentals]=await Promise.all([
+let [stock,market,fundamentals]=
+await Promise.all([
+
 getChart(symbol),
-fetch("https://taiwan-stock-api.p337531.workers.dev/market")
+
+fetch(
+"https://taiwan-stock-api.p337531.workers.dev/market"
+)
 .then(r=>{
-if(!r.ok)throw Error("大盤資料暫時無法取得");
+
+if(!r.ok)
+throw Error("大盤資料暫時無法取得");
+
 return r.json();
+
 }),
+
 getFundamentals(code)
+
 ]);
 
 let sr=stock.chart.result[0];
@@ -237,12 +484,28 @@ let mr=market.chart.result[0];
 
 let quote=sr.indicators.quote[0];
 
-let close=(quote.close||[]).filter(x=>x!=null);
-let high=(quote.high||[]).filter(x=>x!=null);
-let low=(quote.low||[]).filter(x=>x!=null);
-let volume=(quote.volume||[]).filter(x=>x!=null);
+let open=
+(quote.open||[])
+.filter(x=>x!=null);
 
-let mclose=(mr.indicators.quote[0].close||[])
+let close=
+(quote.close||[])
+.filter(x=>x!=null);
+
+let high=
+(quote.high||[])
+.filter(x=>x!=null);
+
+let low=
+(quote.low||[])
+.filter(x=>x!=null);
+
+let volume=
+(quote.volume||[])
+.filter(x=>x!=null);
+
+let mclose=
+(mr.indicators.quote[0].close||[])
 .filter(x=>x!=null);
 
 if(close.length<30)
@@ -250,12 +513,13 @@ throw Error("這檔股票目前取得的歷史資料不足");
 
 let price=close.at(-1);
 let prev=close.at(-2);
-let change=(price/prev-1)*100;
+
+let change=
+(price/prev-1)*100;
 
 let ma5=ma(close,5);
 let ma10=ma(close,10);
 let ma20=ma(close,20);
-let ma60=ma(close,60);
 
 let r=rsi(close);
 let m=macd(close);
@@ -266,57 +530,107 @@ let avgv=avg(volume.slice(-20));
 
 let marketNow=mclose.at(-1);
 let marketPrev=mclose.at(-2);
-let marketChange=(marketNow/marketPrev-1)*100;
 
-let stock20=close.at(-20);
-let market20=mclose.at(-20);
+let marketChange=
+(marketNow/marketPrev-1)*100;
 
-let stock20p=(price/stock20-1)*100;
-let market20p=(marketNow/market20-1)*100;
-let relative=stock20p-market20p;
+let marketMA10=
+ma(mclose,10);
 
-let revData=fundamentals?.revenue||null;
-let valData=fundamentals?.valuation||null;
-let instData=fundamentals?.institutions||null;
+let stockVs10MA=
+(price/ma10-1)*100;
 
-let revenueYoy=revData?.yoy;
-let revenueMom=revData?.mom;
-let instTotal=instData?.total;
+let marketVs10MA=
+(marketNow/marketMA10-1)*100;
+
+let relative=
+stockVs10MA-marketVs10MA;
+
+let revData=
+fundamentals?.revenue||null;
+
+let valData=
+fundamentals?.valuation||null;
+
+let instData=
+fundamentals?.institutions||null;
+
+let revenueYoy=
+revData?.yoy;
+
+let revenueMom=
+revData?.mom;
+
+let instTotal=
+instData?.total;
 
 let revenueState=
-revenueYoy==null?"待資料":
-revenueYoy>=15?"🟢 明顯成長":
-revenueYoy>0?"🟢 成長":
-revenueYoy>-10?"🟡 小幅衰退":"🔴 明顯衰退";
+revenueYoy==null
+?"待資料":
+revenueYoy>=15
+?"🟢 明顯成長":
+revenueYoy>0
+?"🟢 成長":
+revenueYoy>-10
+?"🟡 小幅衰退":
+"🔴 明顯衰退";
 
 let chipState=
-instTotal==null?"待資料":
-instTotal>0?"🟢 法人合計買超":
-instTotal<0?"🔴 法人合計賣超":"🟡 法人持平";
+instTotal==null
+?"待資料":
+instTotal>0
+?"🟢 法人合計買超":
+instTotal<0
+?"🔴 法人合計賣超":
+"🟡 法人持平";
 
-function findSupportResistance(highs,lows,price){
+function findSupportResistance(
+highs,
+lows,
+price
+){
 
 let supports=[];
 let resistances=[];
-let start=Math.max(2,highs.length-60);
 
-for(let i=start;i<highs.length-1;i++){
+let start=
+Math.max(2,highs.length-60);
 
-let h=highs[i],l=lows[i];
+for(
+let i=start;
+i<highs.length-1;
+i++
+){
 
-if(l<price&&l<=lows[i-1]&&l<=lows[i+1])
+let h=highs[i];
+let l=lows[i];
+
+if(
+l<price&&
+l<=lows[i-1]&&
+l<=lows[i+1]
+)
 supports.push(l);
 
-if(h>price&&h>=highs[i-1]&&h>=highs[i+1])
+if(
+h>price&&
+h>=highs[i-1]&&
+h>=highs[i+1]
+)
 resistances.push(h);
 
 }
 
-function uniqueLevels(arr,nearestFirst){
+function uniqueLevels(
+arr,
+nearestFirst
+){
 
 arr.sort(
 nearestFirst
-?(a,b)=>Math.abs(a-price)-Math.abs(b-price)
+?(a,b)=>
+Math.abs(a-price)-
+Math.abs(b-price)
 :(a,b)=>b-a
 );
 
@@ -324,29 +638,65 @@ let out=[];
 
 for(let x of arr){
 
-if(!out.some(y=>Math.abs(x-y)/y<0.008))
+if(
+!out.some(
+y=>Math.abs(x-y)/y<0.008
+)
+)
 out.push(x);
 
-if(out.length>=4)break;
+if(out.length>=4)
+break;
 
 }
 
 return out;
+
 }
 
-let s=uniqueLevels(supports,true);
-let rr=uniqueLevels(resistances,true);
+let s=
+uniqueLevels(
+supports,
+true
+);
 
-let s1=s.find(x=>x<price)??Math.min(...lows.slice(-20));
-let s2=s.find(x=>x<s1*0.992)??Math.min(...lows.slice(-40));
+let rr=
+uniqueLevels(
+resistances,
+true
+);
 
-let r1=rr.find(x=>x>price)??Math.max(...highs.slice(-20));
-let r2=rr.find(x=>x>r1*1.008)??Math.max(...highs.slice(-40));
+let s1=
+s.find(x=>x<price)
+??Math.min(...lows.slice(-20));
 
-return{s1,s2,r1,r2};
+let s2=
+s.find(x=>x<s1*0.992)
+??Math.min(...lows.slice(-40));
+
+let r1=
+rr.find(x=>x>price)
+??Math.max(...highs.slice(-20));
+
+let r2=
+rr.find(x=>x>r1*1.008)
+??Math.max(...highs.slice(-40));
+
+return{
+s1,
+s2,
+r1,
+r2
+};
+
 }
 
-let levels=findSupportResistance(high,low,price);
+let levels=
+findSupportResistance(
+high,
+low,
+price
+);
 
 let s1=levels.s1;
 let s2=levels.s2;
@@ -356,61 +706,147 @@ let r2=levels.r2;
 let risk=50;
 let reasons=[];
 
-if(price>ma5&&price>ma10&&price>ma20){
+if(
+price>ma5&&
+price>ma10&&
+price>ma20
+){
+
 risk-=12;
-reasons.push("股價站在短中期均線之上");
-}else if(price<ma5&&price<ma20){
+
+reasons.push(
+"股價站在短中期均線之上"
+);
+
+}else if(
+price<ma5&&
+price<ma20
+){
+
 risk+=12;
-reasons.push("股價位於短中期均線下方");
+
+reasons.push(
+"股價位於短中期均線下方"
+);
+
 }
 
 if(r>75){
+
 risk+=12;
-reasons.push("RSI偏熱，短線追價風險增加");
+
+reasons.push(
+"RSI偏熱，短線追價風險增加"
+);
+
 }else if(r>=50){
+
 risk-=5;
-reasons.push("RSI維持多方區");
+
+reasons.push(
+"RSI維持多方區"
+);
+
 }else if(r<35){
+
 risk+=5;
-reasons.push("RSI偏弱");
+
+reasons.push(
+"RSI偏弱"
+);
+
 }
 
 if(m>0){
+
 risk-=6;
-reasons.push("MACD位於正值區");
+
+reasons.push(
+"MACD位於正值區"
+);
+
 }else{
+
 risk+=6;
-reasons.push("MACD位於負值區");
+
+reasons.push(
+"MACD位於負值區"
+);
+
 }
 
-let vr=v/avgv;
+let vr=
+v/avgv;
 
-if(vr>1.5&&change>0){
+let indicator=
+indicatorText(
+r,
+m,
+k,
+change,
+vr
+);
+
+if(
+vr>1.5&&
+change>0
+){
+
 risk-=8;
-reasons.push("上漲伴隨放量");
-}else if(vr>1.5&&change<0){
+
+reasons.push(
+"上漲伴隨放量"
+);
+
+}else if(
+vr>1.5&&
+change<0
+){
+
 risk+=10;
-reasons.push("下跌伴隨放量");
+
+reasons.push(
+"下跌伴隨放量"
+);
+
 }
 
 if(relative>5){
+
 risk-=8;
-reasons.push("近20日明顯強於大盤");
+
+reasons.push(
+"股價相對10MA的強度優於大盤"
+);
+
 }else if(relative<-5){
+
 risk+=8;
-reasons.push("近20日弱於大盤");
+
+reasons.push(
+"股價相對10MA的強度弱於大盤"
+);
+
 }
 
 if(revenueYoy!=null){
 
 if(revenueYoy>=10){
-risk-=5;
-reasons.push("最新月營收年增");
-}
 
-else if(revenueYoy<=-10){
+risk-=5;
+
+reasons.push(
+"最新月營收年增"
+);
+
+}else if(revenueYoy<=-10){
+
 risk+=5;
-reasons.push("最新月營收年減");
+
+reasons.push(
+"最新月營收年減"
+);
+
 }
 
 }
@@ -418,43 +854,78 @@ reasons.push("最新月營收年減");
 if(instTotal!=null){
 
 if(instTotal>0){
+
 risk-=3;
-reasons.push("最新交易日三大法人合計買超");
-}
 
-else if(instTotal<0){
+reasons.push(
+"最新交易日三大法人合計買超"
+);
+
+}else if(instTotal<0){
+
 risk+=3;
-reasons.push("最新交易日三大法人合計賣超");
-}
+
+reasons.push(
+"最新交易日三大法人合計賣超"
+);
 
 }
 
-let dist=(r1-price)/price*100;
-let supportDist=(price-s1)/price*100;
+}
+
+let dist=
+(r1-price)/price*100;
+
+let supportDist=
+(price-s1)/price*100;
 
 if(dist<2){
+
 risk+=8;
-reasons.push("目前接近第一壓力區");
+
+reasons.push(
+"目前接近第一壓力區"
+);
+
 }
 
 if(supportDist<2){
+
 risk+=5;
-reasons.push("目前接近第一支撐，波動風險增加");
+
+reasons.push(
+"目前接近第一支撐，波動風險增加"
+);
+
 }
 
-risk=Math.max(10,Math.min(90,Math.round(risk)));
+risk=
+Math.max(
+10,
+Math.min(
+90,
+Math.round(risk)
+)
+);
 
 let level=
-risk<35?"🟢 較低":
-risk<60?"🟡 中等":
+risk<35
+?"🟢 較低":
+risk<60
+?"🟡 中等":
 "🔴 較高";
 
 let cls=
-risk<35?"low":
-risk>=60?"high":"";
+risk<35
+?"low":
+risk>=60
+?"high"
+:"";
 
 let trend=
-price>ma5&&ma5>ma10&&ma10>ma20
+price>ma5&&
+ma5>ma10&&
+ma10>ma20
 ?"主升／加速觀察":
 price>ma20
 ?"偏多／等待確認":
@@ -481,16 +952,22 @@ relative<-5
 "接近大盤";
 
 $("name").textContent=
-code+" "+(names[code]||sr.meta.shortName||"");
+code+" "+(
+names[code]||
+sr.meta.shortName||
+""
+);
 
 $("status").textContent=
-"分析完成｜資料更新："+new Date().toLocaleString("zh-TW");
+"分析完成｜資料更新："+
+new Date().toLocaleString("zh-TW");
 
 $("app").innerHTML=`
 
 <div class="grid">
 
 <div class="card">
+
 <div class="title">📌 個股行情</div>
 
 <div class="big ${change>=0?"up":"down"}">
@@ -509,22 +986,34 @@ ${change>=0?"▲":"▼"} ${pct(change)}
 
 <div class="card">
 
-<div class="title">📊 基本面／籌碼</div>
+<div class="title">
+📊 基本面／籌碼
+</div>
 
 <div class="rows">
 
 <div class="row">
 <span>最新月營收</span>
 <b>
-${revData?.current==null
+${
+revData?.current==null
 ?"—"
-:Number(revData.current/1000000).toFixed(2)+" 億"}
+:Number(
+revData.current/1000000
+).toFixed(2)+" 億"
+}
 </b>
 </div>
 
 <div class="row">
 <span>營收 YoY</span>
-<b class="${revenueYoy==null?"":revenueYoy>=0?"good":"bad"}">
+<b class="${
+revenueYoy==null
+?""
+:revenueYoy>=0
+?"good"
+:"bad"
+}">
 ${pct(revenueYoy)}
 </b>
 </div>
@@ -536,26 +1025,57 @@ ${pct(revenueYoy)}
 
 <div class="row">
 <span>本益比</span>
-<b>${valData?.pe==null?"—":fmt(valData.pe)}</b>
+<b>
+${
+valData?.pe==null
+?"—"
+:fmt(valData.pe)
+}
+</b>
 </div>
 
 <div class="row">
 <span>股價淨值比</span>
-<b>${valData?.pbr==null?"—":fmt(valData.pbr)}</b>
+<b>
+${
+valData?.pbr==null
+?"—"
+:fmt(valData.pbr)
+}
+</b>
 </div>
 
 <div class="row">
 <span>殖利率</span>
-<b>${valData?.yield==null?"—":fmt(valData.yield)+"%"}</b>
+<b>
+${
+valData?.yield==null
+?"—"
+:fmt(valData.yield)+"%"
+}
+</b>
 </div>
 
 <div class="row">
 <span>三大法人</span>
-<b class="${instTotal==null?"":instTotal>=0?"good":"bad"}">
-${instTotal==null
+<b class="${
+instTotal==null
+?""
+:instTotal>=0
+?"good"
+:"bad"
+}">
+${
+instTotal==null
 ?"待資料"
-:(instTotal>=0?"買超 ":"賣超 ")+
-Number(Math.abs(instTotal)/1000).toLocaleString()+" 張"}
+:(instTotal>=0
+?"買超 "
+:"賣超 ")+
+Number(
+Math.abs(instTotal)/1000
+).toLocaleString()+
+" 張"
+}
 </b>
 </div>
 
@@ -564,7 +1084,9 @@ Number(Math.abs(instTotal)/1000).toLocaleString()+" 張"}
 
 <div class="card">
 
-<div class="title">🧭 市場相對強弱</div>
+<div class="title">
+🧭 市場相對強弱
+</div>
 
 <div class="kv">
 
@@ -579,18 +1101,34 @@ Number(Math.abs(instTotal)/1000).toLocaleString()+" 張"}
 </div>
 
 <div>
-大盤20日
-<b>${pct(market20p)}</b>
+大盤 vs MA10
+<b class="${
+marketVs10MA>=0
+?"good"
+:"bad"
+}">
+${pct(marketVs10MA)}
+</b>
 </div>
 
 <div>
-個股20日
-<b>${pct(stock20p)}</b>
+個股 vs MA10
+<b class="${
+stockVs10MA>=0
+?"good"
+:"bad"
+}">
+${pct(stockVs10MA)}
+</b>
 </div>
 
 <div>
 相對大盤
-<b class="${relative>=0?"good":"bad"}">
+<b class="${
+relative>=0
+?"good"
+:"bad"
+}">
 ${pct(relative)}
 </b>
 </div>
@@ -600,25 +1138,70 @@ ${pct(relative)}
 
 <div class="card wide">
 
-<div class="title">📈 技術面</div>
+<div class="title">
+📈 技術面｜一眼看懂
+</div>
+
+<canvas
+id="kline"
+style="
+width:100%;
+height:390px;
+background:#0c1928;
+border-radius:12px;
+display:block
+"></canvas>
 
 <div class="kv">
 
-<div>MA5<b>${fmt(ma5)}</b></div>
-<div>MA10<b>${fmt(ma10)}</b></div>
-<div>MA20<b>${fmt(ma20)}</b></div>
-<div>MA60<b>${fmt(ma60)}</b></div>
-<div>RSI14<b>${fmt(r)}</b></div>
-<div>MACD<b>${fmt(m)}</b></div>
-<div>K值<b>${fmt(k)}</b></div>
-<div>趨勢<b>${trend}</b></div>
+<div>
+MA5
+<b>${fmt(ma5)}</b>
+</div>
+
+<div>
+MA10
+<b>${fmt(ma10)}</b>
+</div>
+
+<div>
+MA20
+<b>${fmt(ma20)}</b>
+</div>
+
+<div>
+成交量
+<b>${indicator.volumeText}</b>
+</div>
+
+<div>
+RSI14
+<b>${fmt(r)}｜${indicator.rsiText}</b>
+</div>
+
+<div>
+MACD
+<b>${fmt(m)}｜${indicator.macdText}</b>
+</div>
+
+<div>
+K值
+<b>${fmt(k)}｜${indicator.kdText}</b>
+</div>
+
+<div>
+趨勢
+<b>${trend}</b>
+</div>
 
 </div>
 </div>
 
 <div class="card">
 
-<div class="title">💥 量價結構</div>
+<div class="title">
+💥 量價結構
+</div>
 
 <div class="rows">
 
@@ -629,7 +1212,7 @@ ${pct(relative)}
 
 <div class="row">
 <span>量價狀態</span>
-<b>${volumeState}</b>
+<b>${indicator.volumeText}</b>
 </div>
 
 <div class="row">
@@ -642,7 +1225,9 @@ ${pct(relative)}
 
 <div class="card">
 
-<div class="title">🎯 關鍵位置</div>
+<div class="title">
+🎯 關鍵位置
+</div>
 
 <div class="rows">
 
@@ -676,110 +1261,233 @@ ${pct(relative)}
 
 <div class="card wide">
 
-<div class="title">🔍 7 層產業研究漏斗</div>
+<div class="title">
+🔍 7 層產業研究漏斗
+</div>
 
 <div class="rows">
 
 <div class="row">
 <span>1️⃣ 市場</span>
-<b>${marketChange>=0?"🟢 偏多":"🔴 偏弱"}</b>
+<b>
+${marketChange>=0
+?"🟢 偏多"
+:"🔴 偏弱"}
+</b>
 </div>
 
 <div class="row">
 <span>2️⃣ 產業</span>
 <b>
-${fundamentals?.industry
-?"產業代碼 "+esc(fundamentals.industry)
-:"產業資料待確認"}
+${
+fundamentals?.industry
+?"產業代碼 "+
+esc(fundamentals.industry)
+:"產業資料待確認"
+}
 </b>
 </div>
 
 <div class="row">
 <span>3️⃣ 需求</span>
 <b>
-${revenueYoy==null
+${
+revenueYoy==null
 ?"營收資料待確認"
-:("營收 YoY "+pct(revenueYoy)+"｜"+revenueState)}
+:(
+"營收 YoY "+
+pct(revenueYoy)+
+"｜"+
+revenueState
+)
+}
 </b>
 </div>
 
 <div class="row">
 <span>4️⃣ 訂單／價格</span>
 <b>
-${pct(stock20p)}（20日價格趨勢代理）｜${volumeState}
+${pct(stockVs10MA)}
+（個股相對MA10）｜
+${indicator.volumeText}
 </b>
 </div>
 
 <div class="row">
 <span>5️⃣ 營收</span>
 <b>
-${revenueYoy==null
+${
+revenueYoy==null
 ?"待最新月營收"
-:("YoY "+pct(revenueYoy)+"｜MoM "+pct(revenueMom))}
+:(
+"YoY "+
+pct(revenueYoy)+
+"｜MoM "+
+pct(revenueMom)
+)
+}
 </b>
 </div>
 
 <div class="row">
 <span>6️⃣ 籌碼</span>
 <b>
-${instTotal==null
+${
+instTotal==null
 ?"待三大法人資料"
-:(chipState+"｜"+
-(instData.foreign==null
+:(
+chipState+
+"｜"+
+(
+instData.foreign==null
 ?""
 :"外資 "+
-(instData.foreign>=0?"+":"")+
-Number(instData.foreign/1000).toFixed(0)+"張"))}
+(
+instData.foreign>=0
+?"+"
+:""
+)+
+Number(
+instData.foreign/1000
+).toFixed(0)+
+"張"
+)
+)
+}
 </b>
 </div>
 
 <div class="row">
 <span>7️⃣ 技術／位階</span>
 <b>
-${trend}｜S1 ${fmt(s1)}／R1 ${fmt(r1)}
+${trend}｜
+S1 ${fmt(s1)}／R1 ${fmt(r1)}
 </b>
 </div>
 
 </div>
 </div>
 
-<div class="card">
+<div class="card wide">
 
-<div class="title">🚦 市場階段</div>
+<div class="title">
+📌 數據小結
+</div>
 
-<div class="big">${trend}</div>
+<div class="notice">
 
-<div class="notice" style="margin-top:8px">
-不是單看一天漲跌，而是看價格、均線、成交量與相對大盤強弱是否同步。
+台股今日
+<b>${pct(marketChange)}</b>，
+個股今日
+<b>${pct(change)}</b>，
+${
+change>marketChange
+?"個股明顯強於大盤。"
+:"個股目前沒有明顯強於大盤。"
+}
+
+<br><br>
+
+股價目前
+${
+price>ma5
+?"站在 MA5"
+:"位於 MA5 下方"
+}、
+${
+price>ma10
+?"站在 MA10"
+:"位於 MA10 下方"
+}、
+${
+price>ma20
+?"站在 MA20"
+:"位於 MA20 下方"
+}，
+短中期趨勢
+<b>${trend}</b>。
+
+<br><br>
+
+RSI
+<b>${fmt(r)}</b>｜
+${indicator.rsiText}；
+
+MACD
+<b>${fmt(m)}</b>｜
+${indicator.macdText}；
+
+KD
+<b>${fmt(k)}</b>｜
+${indicator.kdText}。
+
+<br><br>
+
+成交量
+<b>${indicator.volumeText}</b>。
+
+${
+r>=70
+?"目前高檔過熱，追價風險增加。"
+:""
+}
+
+</div>
+
+<div
+style="
+margin-top:14px;
+font-size:18px;
+font-weight:900
+">
+
+${
+risk<35
+?"🟢 市場狀態：偏多"
+:
+risk<60
+?"🟡 市場狀態：中性／等待確認"
+:
+"🔴 市場狀態：偏弱／風險較高"
+}
+
 </div>
 
 </div>
 
 <div class="card">
 
-<div class="title">⚠️ 主要風險</div>
+<div class="title">
+⚠️ 主要風險
+</div>
 
 <div class="rows">
 
 <div class="row">
 <span>追高</span>
 <b>
-${dist<2
+${
+dist<2
 ?"🔴 接近第一壓力"
-:supportDist<2
+:
+supportDist<2
 ?"🟡 接近第一支撐"
-:"🟢 位於支撐與壓力之間"}
+:
+"🟢 位於支撐與壓力之間"
+}
 </b>
 </div>
 
 <div class="row">
 <span>短線過熱</span>
-<b>${r>75?"🔴":"🟢"}</b>
+<b>
+${r>75?"🔴":"🟢"}
+</b>
 </div>
 
 <div class="row">
 <span>量價</span>
-<b>${volumeState}</b>
+<b>${indicator.volumeText}</b>
 </div>
 
 <div class="row">
@@ -800,24 +1508,36 @@ ${dist<2
 ${level}　${risk}/100
 </div>
 
-<div class="bar" style="margin:12px 0">
-<div class="fill" style="width:${risk}%"></div>
+<div
+class="bar"
+style="margin:12px 0">
+
+<div
+class="fill"
+style="width:${risk}%">
+</div>
+
 </div>
 
 <div class="notice">
 
 <b>為什麼：</b>
+
 ${esc(reasons.join("、"))}。
 
 <br><br>
 
 <b>現在追價風險：</b>
 
-${dist<2
+${
+dist<2
 ?"目前接近第一壓力，直接追價的風險較高。"
-:supportDist<2
+:
+supportDist<2
 ?"目前接近第一支撐，應觀察是否守住。"
-:"目前位於第一支撐與第一壓力之間，仍要觀察量價與大盤。"}
+:
+"目前位於第一支撐與第一壓力之間，仍要觀察量價與大盤。"
+}
 
 <br><br>
 
@@ -836,8 +1556,10 @@ ${dist<2
 <br><br>
 
 <span class="small">
+
 ※ 此風險分數是根據目前取得的技術與量價資料計算，
 不是保證漲跌的投資訊號。
+
 </span>
 
 </div>
@@ -846,17 +1568,35 @@ ${dist<2
 </div>
 `;
 
+window.__lastKline=[
+open,
+high,
+low,
+close,
+volume
+];
+
+drawKLine(
+...window.__lastKline
+);
+
 }catch(e){
 
-$("status").textContent="分析失敗";
+$("status").textContent=
+"分析失敗";
 
 $("app").innerHTML=
 `<div class="card">
+
 <b>⚠️ ${esc(e.message)}</b>
 
-<div class="notice" style="margin-top:10px">
+<div
+class="notice"
+style="margin-top:10px">
+
 可能是公開行情服務暫時限制瀏覽器存取。
 請稍後再試。
+
 </div>
 
 </div>`;
@@ -865,22 +1605,45 @@ $("app").innerHTML=
 
 }
 
-async function getChart(symbol,range="6mo"){
+async function getChart(
+symbol,
+range="6mo"
+){
+
 const u=
 "https://taiwan-stock-api.p337531.workers.dev/chart?symbol="
-+encodeURIComponent(symbol);
++
+encodeURIComponent(symbol);
 
-const r=await fetch(u);
+const r=
+await fetch(u);
 
 if(!r.ok)
-throw Error("後端行情資料暫時無法取得");
+throw Error(
+"後端行情資料暫時無法取得"
+);
 
 return r.json();
+
 }
 
-$("q").addEventListener("keydown",e=>{
-if(e.key==="Enter")analyze();
-});
+window.addEventListener(
+"resize",
+()=>{
+if(window.__lastKline)
+drawKLine(
+...window.__lastKline
+);
+}
+);
+
+$("q").addEventListener(
+"keydown",
+e=>{
+if(e.key==="Enter")
+analyze();
+}
+);
 
 </script>
 </body>
