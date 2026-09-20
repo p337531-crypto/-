@@ -963,17 +963,19 @@ Math.round(risk)
 )
 );
 
+let score=100-risk;
+
 let level=
-risk<35
-?"🟢 較低":
-risk<60
-?"🟡 中等":
-"🔴 較高";
+score>=65
+?"● 低風險"
+:score>=40
+?"● 中等風險"
+:"● 高風險";
 
 let cls=
-risk<35
+score>=65
 ?"low":
-risk>=60
+score>=40
 ?"high"
 :"";
 
@@ -1561,11 +1563,11 @@ ${r>75?"🔴":"🟢"}
 <div class="card wide risk ${cls}">
 
 <div class="title">
-🤖 AI 建議｜當下買入風險
+🤖 AI 建議｜安全分數
 </div>
 
 <div class="risknum">
-${level}　${risk}/100
+${level} ${score}/100
 </div>
 
 <div
@@ -1574,7 +1576,7 @@ style="margin:12px 0">
 
 <div
 class="fill"
-style="width:${risk}%">
+style="width:${score}%">
 </div>
 
 </div>
