@@ -165,31 +165,45 @@ let rs=(gain/n)/(loss/n);
 return 100-(100/(1+rs));
 }
 
+function ema(arr,n){
+if(arr.length<n)return null;
+
+let e=avg(arr.slice(0,n));
+const k=2/(n+1);
+
+for(let i=n;i<arr.length;i++){
+e=arr[i]*k+e*(1-k);
+}
+
+return e;
+}
+
 function macd(arr){
-  if(arr.length<35)return null;
+if(arr.length<35)return null;
 
-  const dif=[];
-  for(let i=0;i<arr.length;i++){
-    if(i<25)continue;
+const dif=[];
 
-    const e12=ema(arr.slice(0,i+1),12);
-    const e26=ema(arr.slice(0,i+1),26);
+for(let i=0;i<arr.length;i++){
+if(i<25)continue;
 
-    if(e12!=null&&e26!=null){
-      dif.push(e12-e26);
-    }
-  }
+const e12=ema(arr.slice(0,i+1),12);
+const e26=ema(arr.slice(0,i+1),26);
 
-  if(dif.length<9)return null;
+if(e12!=null&&e26!=null){
+dif.push(e12-e26);
+}
+}
 
-  const signal=ema(dif,9);
-  const line=dif.at(-1);
+if(dif.length<9)return null;
 
-  return {
-    line,
-    signal,
-    hist:line-signal
-  };
+const signal=ema(dif,9);
+const line=dif.at(-1);
+
+return{
+line,
+signal,
+hist:line-signal
+};
 }
 
 function kd(high,low,close,n=9){
