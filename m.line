@@ -166,19 +166,55 @@ return 100-(100/(1+rs));
 }
 
 function macd(arr){
-let e12=ema(arr,12);
-let e26=ema(arr,26);
-if(e12==null||e26==null)return null;
-return e12-e26;
+  if(arr.length<35)return null;
+
+  const dif=[];
+  for(let i=0;i<arr.length;i++){
+    if(i<25)continue;
+
+    const e12=ema(arr.slice(0,i+1),12);
+    const e26=ema(arr.slice(0,i+1),26);
+
+    if(e12!=null&&e26!=null){
+      dif.push(e12-e26);
+    }
+  }
+
+  if(dif.length<9)return null;
+
+  const signal=ema(dif,9);
+  const line=dif.at(-1);
+
+  return {
+    line,
+    signal,
+    hist:line-signal
+  };
 }
 
-function kd(arr){
-if(arr.length<14)return null;
-let h=Math.max(...arr.slice(-14));
-let l=Math.min(...arr.slice(-14));
-return h===l?50:(arr[arr.length-1]-l)/(h-l)*100;
-}
+function kd(high,low,close,n=9){
+  if(close.length<n)return null;
 
+  let K=50,D=50;
+  const start=Math.max(n-1,close.length-60);
+
+  for(let i=start;i<close.length;i++){
+    const hh=Math.max(...high.slice(i-n+1,i+1));
+    const ll=Math.min(...low.slice(i-n+1,i+1));
+
+    const rsv=hh===ll
+      ?50
+      :(close[i]-ll)/(hh-ll)*100;
+
+    K=(2*K+rsv)/3;
+    D=(2*D+K)/3;
+  }
+
+  return {
+    k:K,
+    d:D
+  };
+}
 function fmt(x,d=2){
 return x==null?"—":Number(x).toFixed(d);
 }
@@ -188,65 +224,61 @@ return x==null?"—":(x>=0?"+":"")+Number(x).toFixed(2)+"%";
 }
 
 function indicatorText(r,m,k,change,vr){
+  let volumeText=
+    change>0&&vr>=1.5
+      ?"🟢 價漲量增｜放量上攻"
+      :change>0&&vr>=1
+      ?"🟢 價漲量增｜溫和放量"
+      :change>0&&vr<0.4
+      ?"🟡 價漲量縮｜量能很低"
+      :change>0&&vr<0.7
+      ?"🟡 價漲量縮｜量縮"
+      :Math.abs(change)<0.5&&vr<0.4
+      ?"⚪ 價平量縮｜極度量縮"
+      :Math.abs(change)<0.5&&vr<0.7
+      ?"🟡 價平量縮｜量縮整理"
+      :change<0&&vr>=1.5
+      ?"🔴 價跌量增｜放量下殺"
+      :change<0&&vr<0.7
+      ?"🔴 價跌量縮｜弱勢"
+      :"🟡 量價正常";
 
-let volumeText=
-change>0&&vr>=1.2
-?"🟢 價漲量增｜攻擊":
-change>0&&vr<1
-?"🟢 價漲量縮｜偏多但力道普通":
-Math.abs(change)<0.5&&vr<0.8
-?"🟡 價平量縮｜整理":
-change<0&&vr>=1.2
-?"🔴 價跌量增｜賣壓":
-change<0&&vr<1
-?"🔴 價跌量縮｜弱勢但賣壓未爆發":
-"🟡 量價正常";
+  let rsiText=
+    r==null
+      ?"資料不足"
+      :r>=70
+      ?"🔴 過熱"
+      :r>=50
+      ?"🟢 偏強"
+      :r>=30
+      ?"🟡 偏弱"
+      :"🔴 超弱／可能超賣";
 
-let rsiText=
-r==null
-?"—":
-r>=70
-?"🔴 過熱":
-r>=50
-?"🟢 偏強":
-r>=30
-?"🟡 偏弱":
-"🔴 超弱／可能超賣";
+  let macdText=
+    m==null
+      ?"資料不足"
+      :m.line>m.signal
+      ?"🟢 DIF > 訊號線"
+      :"🔴 DIF < 訊號線";
 
-let macdText=
-m==null
-?"—":
-m>0
-?"🟢 多方":
-"🔴 空方";
+  let kdText=
+    k==null
+      ?"資料不足"
+      :k.k>=80
+      ?"🔴 K高檔"
+      :k.k<=20
+      ?"🟡 K低檔"
+      :k.k>k.d
+      ?"🟢 K>D"
+      :"🔴 K<D";
 
-let kdText=
-k==null
-?"—":
-k>=80
-?"🔴 高檔":
-k<=20
-?"🟡 低檔":
-k>=50
-?"🟢 K>D 區間":
-"🔴 K<D 區間";
-
-return{
-volumeText,
-rsiText,
-macdText,
-kdText
-};
+  return{
+    volumeText,
+    rsiText,
+    macdText,
+    kdText
+  };
 }
-
-function drawKLine(open,high,low,close,volume){
-
-const canvas=document.getElementById("kline");
-
-if(!canvas)return;
-
-const dpr=window.devicePixelRatio||1;
-const rect=canvas.getBoundingClientRect();
 
 const w=Math.max(320,Math.floor(rect.width));
 const h=Math.max(360,Math.floor(rect.height));
@@ -523,10 +555,13 @@ let ma20=ma(close,20);
 
 let r=rsi(close);
 let m=macd(close);
-let k=kd(close);
+let k=kd(high,low,close);
 
 let v=volume.at(-1);
 let avgv=avg(volume.slice(-20));
+let avg5v=avg(volume.slice(-5));
+let volumeRatio20=avgv>0?v/avgv:null;
+let volumeTrend=avgv>0?avg5v/avgv:null;
 
 let marketNow=mclose.at(-1);
 let marketPrev=mclose.at(-2);
@@ -923,15 +958,15 @@ risk>=60
 :"";
 
 let trend=
-price>ma5&&
-ma5>ma10&&
-ma10>ma20
-?"主升／加速觀察":
-price>ma20
-?"偏多／等待確認":
+price>ma5&&price>ma10&&price>ma20&&ma5>ma10&&ma10>ma20
+?"多頭排列":
+price>ma5&&price>ma10&&price>ma20
+?"站上均線｜均線仍待轉強":
+price<ma5&&price<ma10&&price<ma20&&ma5<ma10&&ma10<ma20
+?"空頭排列":
 price<ma20
-?"偏弱／等待轉強":
-"整理";
+?"均線下方｜偏弱":
+"整理／等待確認";
 
 let volumeState=
 vr>1.5&&change>0
@@ -943,11 +978,11 @@ vr<0.7
 "正常";
 
 let relativeState=
-relative>5
+relative>=3
 ?"明顯強於大盤":
 relative>0
 ?"略強於大盤":
-relative<-5
+relative<=-3
 ?"明顯弱於大盤":
 "接近大盤";
 
@@ -1207,7 +1242,12 @@ K值
 
 <div class="row">
 <span>今日量 / 20日均量</span>
-<b>${fmt(vr,2)} 倍</b>
+<b>${fmt(volumeRatio20,2)} 倍</b>
+</div>
+
+<div class="row">
+<span>5日均量 / 20日均量</span>
+<b>${fmt(volumeTrend,2)} 倍</b>
 </div>
 
 <div class="row">
@@ -1289,7 +1329,7 @@ esc(fundamentals.industry)
 </div>
 
 <div class="row">
-<span>3️⃣ 需求</span>
+<span>3️⃣ 營收動能</span>
 <b>
 ${
 revenueYoy==null
@@ -1305,7 +1345,7 @@ revenueState
 </div>
 
 <div class="row">
-<span>4️⃣ 訂單／價格</span>
+<span>4️⃣ 價格/均線</span>
 <b>
 ${pct(stockVs10MA)}
 （個股相對MA10）｜
@@ -1318,7 +1358,7 @@ ${indicator.volumeText}
 <b>
 ${
 revenueYoy==null
-?"待最新月營收"
+?"⚪最新月營收資料不足"
 :(
 "YoY "+
 pct(revenueYoy)+
@@ -1334,7 +1374,7 @@ pct(revenueMom)
 <b>
 ${
 instTotal==null
-?"待三大法人資料"
+?"⚪ 三大法人資料不足"
 :(
 chipState+
 "｜"+
